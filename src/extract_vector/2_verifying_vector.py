@@ -6,7 +6,8 @@ import torch
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-import configs as cfg
+import src.extract_vector.configs as cfg
+
 
 class SelfCorrectionSteeringExtractor:
     def __init__(self, model_name, system_prompt, device="cuda", debug_mode=True):
@@ -176,4 +177,73 @@ def main():
                 prompt,
                 context_steps,
                 target_step=trigger,
-                debug_lab
+                debug_label=f"SAMPLE {idx} - TRIGGER"
+            )
+
+            correction_acts = extractor.get_targeted_activations(
+                prompt,
+                context_steps,
+                target_step=correction_step,
+                intermediate_steps=trigger,
+                debug_label=f"SAMPLE {idx} - CORRECTION"
+            )
+
+            verif_trigger_vectors = {}
+            verifying_vectors = {}
+
+            for layer_name in bad_acts.keys():
+                vec_bad = bad_acts[layer_name]
+                vec_trigger = trigger_acts[layer_name]
+                vec_correction = correction_acts[layer_name]
+
+                verif_trigger_vectors[layer_name] = vec_trigger - vec_bad
+                verifying_vectors[layer_name] = vec_correction - vec_bad
+
+            buffer_data.append(
+                {
+                    "sample_idx": idx,
+                    "prompt": prompt,
+                    "meta": meta,
+                    "vectors": {
+                        "verif_trigger": verif_trigger_vectors,
+                        "verifying": verifying_vectors,
+                    },
+                }
+            )
+
+            del bad_acts, trigger_acts, correction_acts, verif_trigger_vectors, verifying_vectors
+
+            if len(buffer_data) >= cfg.SAVE_INTERVAL:
+                chunk_idx = len(chunk_paths)
+                chunk_path = os.path.join(temp_dir, f"chunk_{chunk_idx}.pt")
+                torch.save(buffer_data, chunk_path)
+                chunk_paths.append(chunk_path)
+                print(f" [CheckPoint] Saved chunk {chunk_idx}")
+                buffer_data = []
+                gc.collect()
+                torch.cuda.empty_cache()
+
+        except Exception as e:
+            print(f"[Error] Sample {idx} failed: {e}")
+            continue
+
+    if buffer_data:
+        chunk_path = os.path.join(temp_dir, f"chunk_{len(chunk_paths)}.pt")
+        torch.save(buffer_data, chunk_path)
+        chunk_paths.append(chunk_path)
+
+    print("\n>>> Merging chunks...")
+    final_data = []
+    for cp in chunk_paths:
+        final_data.extend(torch.load(cp))
+        del cp
+        gc.collect()
+
+    print(f">>> Saving final output to {full_output_path}...")
+    torch.save(final_data, full_output_path)
+    shutil.rmtree(temp_dir)
+    print(">>> Done.")
+
+
+if __name__ == "__main__":
+    main()

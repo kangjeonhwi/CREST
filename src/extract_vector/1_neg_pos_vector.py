@@ -9,7 +9,7 @@ from tqdm import tqdm
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-import configs as cfg
+import src.extract_vector.configs as cfg
 
 # -----------------------------
 # Logging
@@ -200,6 +200,7 @@ def main():
             if len(buffer_data) >= cfg.SAVE_INTERVAL:
                 chunk_idx = len(chunk_paths)
                 chunk_path = os.path.join(temp_dir, f"chunk_{chunk_idx}.pt")
+                os.makedirs(os.path.dirname(chunk_path), exist_ok=True)
                 torch.save(buffer_data, chunk_path)
                 chunk_paths.append(chunk_path)
                 buffer_data = []
@@ -214,6 +215,7 @@ def main():
     if buffer_data:
         chunk_idx = len(chunk_paths)
         chunk_path = os.path.join(temp_dir, f"chunk_{chunk_idx}.pt")
+        os.makedirs(os.path.dirname(chunk_path), exist_ok=True)
         torch.save(buffer_data, chunk_path)
         chunk_paths.append(chunk_path)
         logger.info(f"Final checkpoint saved: chunk_{chunk_idx}.pt")
